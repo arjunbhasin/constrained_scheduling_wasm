@@ -354,8 +354,11 @@ pub fn crossover(
 ) -> SolverState {
     let mut child = SolverState::new(drivers, vehicles);
 
-    for order in orders {
-        let assignment = if rng.gen_bool(0.5) {
+    // One-point crossover
+    let crossover_point = rng.gen_range(0..orders.len());
+
+    for (i, order) in orders.iter().enumerate() {
+        let assignment = if i < crossover_point {
             parent1.assignments.iter().find(|a| a.order_id == order.id)
         } else {
             parent2.assignments.iter().find(|a| a.order_id == order.id)
@@ -425,54 +428,58 @@ pub fn mutate(
     mandatory_break: ChronoDuration,
     rng: &mut ThreadRng,
 ) {
-    // Randomly remove some assignments
-    let remove_count = rng.gen_range(1..=3);
-    for _ in 0..remove_count {
-        if individual.assignments.is_empty() {
-            break;
-        }
-        let idx = rng.gen_range(0..individual.assignments.len());
-        let assignment = individual.assignments.remove(idx);
-        individual.driver_schedules.get_mut(&assignment.driver_id).unwrap().retain(|&(start, end)| {
-            !(start == orders.iter().find(|o| o.id == assignment.order_id).unwrap().start_time && end == orders.iter().find(|o| o.id == assignment.order_id).unwrap().end_time)
-        });
-        individual.vehicle_schedules.get_mut(&assignment.vehicle_id).unwrap().retain(|&(start, end)| {
-            !(start == orders.iter().find(|o| o.id == assignment.order_id).unwrap().start_time && end == orders.iter().find(|o| o.id == assignment.order_id).unwrap().end_time)
-        });
+    // Randomly select an assignment to mutate
+    if individual.assignments.is_empty() {
+        return;
     }
 
-    // Try to reassign the orders
-    for order in orders {
-        if individual.assignments.iter().any(|a| a.order_id == order.id) {
+    let idx = rng.gen_range(0..individual.assignments.len());
+    let assignment = individual.assignments[idx].clone();
+    let order = orders.iter().find(|o| o.id == assignment.order_id).unwrap();
+
+    // Remove the assignment
+    individual.assignments.remove(idx);
+    individual.driver_schedules.get_mut(&assignment.driver_id).unwrap().retain(|&(start, end)| {
+        start != order.start_time || end != order.end_time
+    });
+    individual.vehicle_schedules.get_mut(&assignment.vehicle_id).unwrap().retain(|&(start, end)| {
+        start != order.start_time || end != order.end_time
+    });
+
+    // Attempt to reassign the order to a different driver or vehicle
+    let mut possible_assignments = Vec::new();
+    for driver in drivers {
+        if driver.id == assignment.driver_id {
+            continue; // Skip the same driver
+        }
+        let driver_schedule = &individual.driver_schedules[&driver.id];
+        if !can_assign_driver(order, driver, driver_schedule, mandatory_break) {
             continue;
         }
-        let mut possible_assignments = Vec::new();
-        for driver in drivers {
-            let driver_schedule = &individual.driver_schedules[&driver.id];
-            if !can_assign_driver(order, driver, driver_schedule, mandatory_break) {
+        for vehicle in vehicles {
+            if vehicle.id == assignment.vehicle_id {
+                continue; // Skip the same vehicle
+            }
+            let vehicle_schedule = &individual.vehicle_schedules[&vehicle.id];
+            if !can_assign_vehicle(order, vehicle, vehicle_schedule, mandatory_break) {
                 continue;
             }
-            for vehicle in vehicles {
-                let vehicle_schedule = &individual.vehicle_schedules[&vehicle.id];
-                if !can_assign_vehicle(order, vehicle, vehicle_schedule, mandatory_break) {
-                    continue;
-                }
-                if can_assign(
-                    order,
-                    driver,
-                    vehicle,
-                    driver_schedule,
-                    vehicle_schedule,
-                    mandatory_break,
-                ) {
-                    possible_assignments.push((driver.clone(), vehicle.clone()));
-                }
+            if can_assign(
+                order,
+                driver,
+                vehicle,
+                driver_schedule,
+                vehicle_schedule,
+                mandatory_break,
+            ) {
+                possible_assignments.push((driver.clone(), vehicle.clone()));
             }
         }
-        if !possible_assignments.is_empty() {
-            let (driver, vehicle) = possible_assignments.choose(rng).unwrap();
-            individual.assign_order(order, driver, vehicle, priority_map);
-        }
+    }
+
+    if !possible_assignments.is_empty() {
+        let (new_driver, new_vehicle) = possible_assignments.choose(rng).unwrap();
+        individual.assign_order(order, new_driver, new_vehicle, priority_map);
     }
 
     individual.score = individual.calculate_score(priority_map, drivers);

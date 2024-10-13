@@ -1,10 +1,10 @@
 // src/lib.rs
 mod solver;
 use wasm_bindgen::prelude::*;
+use console_error_panic_hook;
 use serde_wasm_bindgen::{from_value, to_value};
-use js_sys::Function;
+use js_sys::{Function,Date};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use rand::prelude::*;
 use chrono::Duration as ChronoDuration;
 use solver::{
@@ -25,7 +25,11 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "Date")]    pub type JsDate;
 }
 
-
+#[wasm_bindgen(start)]
+pub fn main_js() {
+    // Set the panic hook
+    console_error_panic_hook::set_once();
+}
 
 // Genetic Algorithm implementation with progress updates
 #[wasm_bindgen]
@@ -36,17 +40,19 @@ pub fn get_schedule_recommendation(
     js_update_function: &Function,
 ) -> Result<JsValue, JsValue> {
     // Deserialize input data from JsValue
-    let drivers: Vec<Driver> = from_value(js_drivers)?;
-    let vehicles: Vec<Vehicle> = from_value(js_vehicles)?;
-    let orders: Vec<Order> = from_value(js_orders)?;
+    let drivers: Vec<Driver> = from_value(js_drivers).map_err(|e| JsValue::from_str(&format!("Failed to deserialize drivers: {}", e)))?;
+    let vehicles: Vec<Vehicle> = from_value(js_vehicles).map_err(|e| JsValue::from_str(&format!("Failed to deserialize vehicles: {}", e)))?;
+    let orders: Vec<Order> = from_value(js_orders).map_err(|e| JsValue::from_str(&format!("Failed to deserialize orders: {}", e)))?;
+
 
     // Initialize parameters
     let generations = 1000; // Use generations variable
     let population_size = 50;
     let mutation_rate = 0.1;
     let mandatory_break = ChronoDuration::minutes(30);
-    let start_time = Instant::now();
-    let max_duration = Duration::from_secs(10);
+    let start_time = Date::now(); // Milliseconds since epoch as f64
+    let max_duration = 10_000.0; // 10 seconds in milliseconds
+    
 
     // Map for order priorities
     let order_priority_map: HashMap<String, u32> = orders
@@ -71,7 +77,7 @@ pub fn get_schedule_recommendation(
     let mut generation = 0;
 
     // Use generations variable to control the loop
-    while generation < generations && start_time.elapsed() < max_duration {
+    while (Date::now() - start_time) < max_duration && generation < generations {
         // Evaluate fitness
         population.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
