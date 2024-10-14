@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use chrono::{Duration as ChronoDuration, NaiveDateTime};
+use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::TimestampMilliSeconds;
-use rand::prelude::*;
+use std::collections::{HashMap, HashSet};
 
 #[serde_as]
 #[derive(Clone, Debug, Deserialize)]
@@ -42,8 +42,6 @@ pub struct Order {
     pub weight: f64,
     pub volume: Option<f64>,
 }
-
-
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Assignment {
@@ -113,7 +111,11 @@ impl SolverState {
         self.score += weight;
     }
 
-    fn calculate_score(&self, priority_map: &HashMap<String, u32>, drivers: &Vec<Driver>) -> f64 {
+    pub fn calculate_score(
+        &self,
+        priority_map: &HashMap<String, u32>,
+        drivers: &Vec<Driver>,
+    ) -> f64 {
         let mut score = 0.0;
         for assignment in &self.assignments {
             let priority = *priority_map.get(&assignment.order_id).unwrap_or(&1) as f64;
@@ -139,11 +141,7 @@ fn orders_overlap(order1: &Order, order2: &Order) -> bool {
     order1.start_time < order2.end_time && order2.start_time < order1.end_time
 }
 
-fn insufficient_break(
-    order1: &Order,
-    order2: &Order,
-    mandatory_break: ChronoDuration,
-) -> bool {
+fn insufficient_break(order1: &Order, order2: &Order, mandatory_break: ChronoDuration) -> bool {
     if order1.end_time <= order2.start_time {
         order2.start_time - order1.end_time < mandatory_break
     } else if order2.end_time <= order1.start_time {
@@ -275,7 +273,6 @@ fn can_assign(
     true
 }
 
-
 pub fn initialize_random_state(
     drivers: &Vec<Driver>,
     vehicles: &Vec<Vehicle>,
@@ -326,8 +323,6 @@ pub fn initialize_random_state(
     state
 }
 
-
-
 pub fn select_parent<'a>(population: &'a Vec<SolverState>) -> &'a SolverState {
     // Tournament selection
     let mut rng = rand::thread_rng();
@@ -365,8 +360,14 @@ pub fn crossover(
         };
 
         if let Some(assignment) = assignment {
-            let driver = drivers.iter().find(|d| d.id == assignment.driver_id).unwrap();
-            let vehicle = vehicles.iter().find(|v| v.id == assignment.vehicle_id).unwrap();
+            let driver = drivers
+                .iter()
+                .find(|d| d.id == assignment.driver_id)
+                .unwrap();
+            let vehicle = vehicles
+                .iter()
+                .find(|v| v.id == assignment.vehicle_id)
+                .unwrap();
 
             if can_assign(
                 order,
@@ -439,12 +440,16 @@ pub fn mutate(
 
     // Remove the assignment
     individual.assignments.remove(idx);
-    individual.driver_schedules.get_mut(&assignment.driver_id).unwrap().retain(|&(start, end)| {
-        start != order.start_time || end != order.end_time
-    });
-    individual.vehicle_schedules.get_mut(&assignment.vehicle_id).unwrap().retain(|&(start, end)| {
-        start != order.start_time || end != order.end_time
-    });
+    individual
+        .driver_schedules
+        .get_mut(&assignment.driver_id)
+        .unwrap()
+        .retain(|&(start, end)| start != order.start_time || end != order.end_time);
+    individual
+        .vehicle_schedules
+        .get_mut(&assignment.vehicle_id)
+        .unwrap()
+        .retain(|&(start, end)| start != order.start_time || end != order.end_time);
 
     // Attempt to reassign the order to a different driver or vehicle
     let mut possible_assignments = Vec::new();
